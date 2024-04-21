@@ -1,0 +1,365 @@
+{% extends "base.html" %}
+{% load static %}
+
+
+{% block head %}
+<link rel="stylesheet" href="{% static 'css/practice.css' %}">
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+{% endblock head %}
+
+
+{% block main %}
+<div class="mt-5 flex justify-between sticky top-16 mx-5">
+    <div></div>
+<div class="join join-horizontal">
+  <button class="btn btn-sm btn-info join-item disabled:bg-sky-500/70 disabled:text-black" id="run_btn"><span id="run_btn_text">Run</span></button>
+  <button class="btn btn-sm btn-success join-item" id="submit_btn"><span id="submit_btn_text">Submit</span></button>
+</div>
+<div class="flex justify-end mb-2">
+    <div class="dropdown dropdown-end">
+        <button tabindex="0" role="button" class="mx-2 animate_gradient_btn p-0.5 rounded-md group" id="ai_btn" onclick="ai_modal.showModal()"><div class="bg-base-200 text-white rounded-md py-1 px-2 group-hover:bg-transparent group-hover:text-black group-hover:font-bold transition-all ease-in-out">AI Help</div></button>
+    </div>
+    <select class="select select-bordered select-sm border border-primary/50" id="lang_selector">
+    <option selected>Python</option>
+    <option>C++</option>
+    <option>Java</option>
+    <option>Rust</option>
+    <option>Golang</option>
+    <option>C</option>
+    <option>JavaScript</option>
+    <option>PHP</option>
+    <option>Swift</option>
+    <option>C#</option>
+    <option>Scala</option>
+    <option>Kotlin</option>
+    <option>Perl</option>
+    <option>Ruby</option>
+    </select>
+</div>
+</div>
+
+<div class=" flex">
+    <div class="w-2/5 p-5 text-xl">
+        {{ question.question_name }}
+        <div class="">
+        {{ question.question_text|safe }}
+        </div>
+        <div>
+            {% for testcase in test_cases %}
+            <div class="collapse collapse-arrow join-item border border-primary/50 my-2" id="testcase">
+                <input type="radio" id="test_case_{{ forloop.counter }}" /> 
+                <div class="collapse-title text-xl font-medium">
+                Test Case {{ forloop.counter }}
+                </div>
+                <div class="collapse-content">
+                    <span class="text-white">Input:</span>
+                <div class="bg-gray-600 w-full p-3 rounded-xl">
+                    {{ testcase.test_input }}
+                </div>
+                <span class="text-white">Output:</span>
+                <div class="bg-gray-600 w-full p-3 rounded-xl">
+                    {{ testcase.test_output }}
+                </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="w-3/5 p-2 h-[87svh] sticky top-16">
+        <div id="editor" style="width: 100%; height: 100%; border-radius: 10px;" class="border-2 border-primary/50"></div>
+    </div>
+</div>
+
+
+  <dialog id="output_modal" class="modal modal-bottom sm:modal-middle ">
+    <div class="modal-box border border-2 border-primary">
+      <div class="font-bold text-lg flex justify-between">
+        <span>Output</span>
+        <form method="dialog">
+          <button class="btn btn-error text-xs leading-none">✖</button>
+        </form>
+      </div>
+      <div id="output_result">
+      </div>
+      <br/>
+      <progress class="progress w-56" value="0" max="100" id="run_progress"></progress>
+        <table id="testcase_stats" class="table hidden">
+            <thead>
+                <th>Testcase</th>
+                <th>Time Taked</th>
+                <th>Memoery Used</th>
+                <th>Result</th>
+            </thead>
+            <tbody>
+            </tbody>
+        </table>
+    </div>
+  </dialog>
+
+  <dialog id="ai_modal" class="modal modal-bottom sm:modal-middle ">
+    <div class="modal-box border border-2 border-primary">
+      <div class="font-bold text-lg flex justify-between">
+        <span>AI Help</span>
+        <form method="dialog">
+          <button class="btn btn-error text-xs leading-none">✖</button>
+        </form>
+      </div>
+      <div id="ai_btns">
+        <button class="btn btn-sm btn-primary" id="Optimization_ai_help"><span id="optimize_ai_txt">Optimization Help</span></button>
+        <button class="btn btn-sm btn-primary hidden">Syntax Help</button>
+      </div>
+      <div id="ai_response">
+
+      </div>
+    </div>
+  </dialog>
+
+<script>
+    var editor = ace.edit("editor");
+    editor.setTheme("ace/theme/github_dark");
+    editor.session.setMode("ace/mode/python");
+    editor.setOptions({
+        fontSize: "10pt",
+        showLineNumbers: true,
+        showInvisibles: true,
+    });
+
+    editor.on("change", function () {
+        var code = editor.getValue();
+        key_name = "question_" + {{ question.id }}+"_code";
+        localStorage.setItem(key_name, editor.getValue());
+    });
+
+    if (localStorage.getItem("question_" + {{ question.id }}+"_code") != null) {
+        editor.setValue(localStorage.getItem("question_" + {{ question.id }}+"_code"));
+    }
+
+    var run_btn = document.getElementById("run_btn");
+    var submit_btn = document.getElementById("submit_btn");
+    var run_btn_text = document.getElementById("run_btn_text");
+    var submit_btn_text = document.getElementById("submit_btn_text");
+
+    run_btn.addEventListener("click", function () {
+        run_btn_text.classList.add("loading");
+        run_btn.disabled = true;
+        run_code_dialog = document.getElementById("output_modal");
+        run_code_dialog.showModal();
+        document.getElementById("output_result").classList.add("loading", "loading-infinity","loading-lg");
+        stats_table = document.getElementById("testcase_stats");
+        stats_table.classList.add("hidden");
+        table_body = stats_table.getElementsByTagName("tbody")[0];
+        table_body.innerHTML = "";
+        var code = editor.getValue();
+        var data = {
+            code: code,
+            question_id: {{ question.id }},
+            lang: document.getElementById("lang_selector").value,
+        };
+        fetch("/practice/{{ question.id }}/run", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken": "{{ csrf_token }}"
+            },
+            body: JSON.stringify(data),
+        })
+            .then((response) => response.json())
+            .then((data) => {
+                console.log(data);
+                run_btn_text.classList.remove("loading");
+                run_btn.disabled = false;
+                document.getElementById("output_result").classList.remove("loading", "loading-infinity","loading-lg");
+                document.getElementById("output_result").innerHTML = data.correct_testcase + " out of " + data.total_testcase + " testcases passed";
+                percent_correct = (data.correct_testcase / data.total_testcase) * 100;
+                var progressValue = 0;
+                var interval = setInterval(function() {
+                    if (progressValue >= percent_correct) {
+                        clearInterval(interval);
+                    } else {
+                        progressValue++;
+                        document.getElementById("run_progress").value = progressValue;
+                    }
+                }, 2);
+                if (percent_correct==100){
+                    document.getElementById("run_progress").classList.add("progress-success");
+                }
+                else if (percent_correct>80) {
+                    document.getElementById("run_progress").classList.add("progress-success");
+                } 
+                else if (percent_correct>50) {
+                    document.getElementById("run_progress").classList.add("progress-info");
+                }
+                else {
+                    document.getElementById("run_progress").classList.add("progress-warning");
+                }
+                stats_table.classList.remove("hidden");
+                testcase_stats = data.testcase_stats;
+                console.log(testcase_stats);
+                for (let i = 0; i < testcase_stats.length; i++) {
+                    var row = table_body.insertRow();
+                    var cell1 = row.insertCell();
+                    var cell2 = row.insertCell();
+                    var cell3 = row.insertCell();
+                    var cell4 = row.insertCell();
+                    test_case_num = i;
+                    cell1.innerHTML = "Testcase "+(i+1);
+                    cell2.innerHTML = testcase_stats[test_case_num].time;
+                    cell3.innerHTML = testcase_stats[test_case_num].memory;
+                    cell4.innerHTML = testcase_stats[test_case_num].result;
+                }
+            });
+        
+    });
+
+    submit_btn.addEventListener("click", function () {
+        submit_btn_text.classList.add("loading");
+        submit_btn.disabled = true;
+        run_code_dialog = document.getElementById("output_modal");
+        run_code_dialog.showModal();
+        document.getElementById("output_result").classList.add("loading", "loading-infinity","loading-lg");
+        stats_table = document.getElementById("testcase_stats");
+        stats_table.classList.add("hidden");
+        table_body = stats_table.getElementsByTagName("tbody")[0];
+        table_body.innerHTML = "";
+        var code = editor.getValue();
+        var data = {
+            code: code,
+            question_id: {{ question.id }},
+            lang: document.getElementById("lang_selector").value,
+        };
+        fetch("/practice/{{ question.id }}/submit", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken": "{{ csrf_token }}"
+            },
+            body: JSON.stringify(data),
+        })
+            .then((response) => response.json())
+            .then((data) => {
+                console.log(data);
+                submit_btn_text.classList.remove("loading");
+                submit_btn.disabled = false;
+                document.getElementById("output_result").classList.remove("loading", "loading-infinity","loading-lg");
+                document.getElementById("output_result").innerHTML = data.correct_testcase + " out of " + data.total_testcase + " testcases passed";
+                percent_correct = (data.correct_testcase / data.total_testcase) * 100;
+                var progressValue = 0;
+                var interval = setInterval(function() {
+                    if (progressValue >= percent_correct) {
+                        clearInterval(interval);
+                    } else {
+                        progressValue++;
+                        document.getElementById("run_progress").value = progressValue;
+                    }
+                }, 2);
+                if (percent_correct==100){
+                    document.getElementById("run_progress").classList.add("progress-success");
+                }
+                else if (percent_correct>80) {
+                    document.getElementById("run_progress").classList.add("progress-success");
+                } 
+                else if (percent_correct>50) {
+                    document.getElementById("run_progress").classList.add("progress-info");
+                }
+                else {
+                    document.getElementById("run_progress").classList.add("progress-warning");
+                }
+                stats_table.classList.remove("hidden");
+                testcase_stats = data.testcase_stats;
+                console.log(testcase_stats);
+                non_hidden_testcase = 0;
+                for (let i = 0; i < testcase_stats.length; i++) {
+                    var row = table_body.insertRow();
+                    var cell1 =  row.insertCell();
+                    var cell2 =  row.insertCell();
+                    var cell3 =  row.insertCell();
+                    var cell4 =  row.insertCell();
+                    test_case_num = i;
+                    if (!testcase_stats[i].hidden){
+                        non_hidden_testcase++;
+                        cell1.innerHTML = "Testcase "+(i+1);
+                    }
+                    else{
+                        console.log(non_hidden_testcase)
+                        cell1.innerHTML = "Hidden Testcase "+(i+1-non_hidden_testcase);
+                    }
+                    cell2.innerHTML = testcase_stats[test_case_num].time;
+                    cell3.innerHTML = testcase_stats[test_case_num].memory;
+                    cell4.innerHTML = testcase_stats[test_case_num].result;
+                }
+            });
+        
+    });
+
+
+    testcase_accordions = document.getElementsByClassName("collapse-arrow");
+    for (let i = 0; i < testcase_accordions.length; i++) {
+        testcase_accordions[i].addEventListener("click", function () {
+            input_box = document.getElementById("test_case_" + (i + 1));
+            input_box.checked = !input_box.checked;
+        });
+    }
+
+    lang_selector = document.getElementById("lang_selector");
+    lang_selector.addEventListener("change", function () {
+        if (lang_selector.value == "Python") {
+            editor.session.setMode("ace/mode/python");
+        } else if (lang_selector.value == "C++") {
+            editor.session.setMode("ace/mode/c_cpp");
+        } else if (lang_selector.value == "Java") {
+            editor.session.setMode("ace/mode/java");
+        } else if (lang_selector.value == "Rust") {
+            editor.session.setMode("ace/mode/rust");
+        } else if (lang_selector.value == "Golang") {
+            editor.session.setMode("ace/mode/golang");
+        } else if (lang_selector.value == "C") {
+            editor.session.setMode("ace/mode/c_cpp");
+        } else if (lang_selector.value == "JavaScript") {
+            editor.session.setMode("ace/mode/javascript");
+        } else if (lang_selector.value == "PHP") {
+            editor.session.setMode("ace/mode/php");
+        } else if (lang_selector.value == "Swift") {
+            editor.session.setMode("ace/mode/swift");
+        } else if (lang_selector.value == "C#") {
+            editor.session.setMode("ace/mode/csharp");
+        } else if (lang_selector.value == "Scala") {
+            editor.session.setMode("ace/mode/scala");
+        } else if (lang_selector.value == "Kotlin") {
+            editor.session.setMode("ace/mode/kotlin");
+        } else if (lang_selector.value == "Perl") {
+            editor.session.setMode("ace/mode/perl");
+        } else if (lang_selector.value == "Ruby") {
+            editor.session.setMode("ace/mode/ruby");
+        }
+    });
+
+
+    var Optimization_ai_help = document.getElementById("Optimization_ai_help");
+    var optimize_ai_txt = document.getElementById("optimize_ai_txt");
+    Optimization_ai_help.addEventListener("click", function () {
+        optimize_ai_txt.classList.add("loading");
+        document.getElementById("ai_response").innerHTML = "";
+        var code = editor.getValue();
+        var data = {
+            code: code,
+            question_id: {{ question.id }},
+            lang: document.getElementById("lang_selector").value,
+        };
+        fetch("/api/ai/optimize", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken": "{{ csrf_token }}"
+            },
+            body: JSON.stringify(data),
+        })
+            .then((response) => response.json())
+            .then((data) => {
+                document.getElementById("ai_response").innerHTML = marked.parse(data.data);
+                optimize_ai_txt.classList.remove("loading");
+            });
+    });
+
+</script>
+{% endblock main %}
